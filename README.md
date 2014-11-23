@@ -11,4 +11,4 @@ Data courtesy:
 http://groupware.les.inf.puc-rio.br/har
 
 View the html report at 
-maxeywen.github.io
+http://maxeywen.github.io
