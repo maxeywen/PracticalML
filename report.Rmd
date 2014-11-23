@@ -1,0 +1,123 @@
+Using Sensors to predict Physical Movements
+========================================================
+### Abstract
+Sensor data is aready used by the fitness industry to track heart rate and steps taken.  A next step is to use sensors to gauge movements for other variables such such as correctness.  This study will use sensor data to develop a model to detect the difference between 5 different variations of a movement using machine learning.
+
+#### Data Source
+The data used here comes from research conducted in conjunction with the publishing of the paper Qualitative Activity Recognition of Weight Lifting Exercises [1].  The paper describes:
+
+*Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).*
+
+Sensors placed on the arm (bicep), forearm, belt, and dumbell record data as the movements are performed.  The data set is comprised of over 19,000 observations, each with 52 sensor readings.  
+
+The goal here is to use this data to build a machine learning model to predict the class of activity performed.
+
+## Getting & Pre-processing
+The data can be downloaded from http://groupware.les.inf.puc-rio.br/static/WLE/WearableComputing_weight_lifting_exercises_biceps_curl_variations.csv.
+
+The data set is full of many summary variables with NA or no data.  The first step of pre-processing removes all of these.  Also removed because I do not intend to use them in the model are names and time stamps.  For simplicity this was done in a spreadsheet before opening the first time in R.
+
+```{r import, cache=TRUE}
+raw.data <- read.csv("../../data/train.csv")
+```
+
+```{r seed, echo=FALSE}
+set.seed(777)
+```
+
+Before splitting the data into train/test I want to check for any potential predictors that have near-zero variance since they would not contribute to the model.  The caret package includes nearZeroVar to do this.
+
+```{r nzv, cache=TRUE}
+library(caret)
+nzv <- nearZeroVar(raw.data, saveMetrics = TRUE)
+nzv[nzv$nzv, ]
+```
+
+The results show no features with low variance.
+
+Next a check for highly correlated variables since many models benfit from reducing the correlation levels between predictors.
+```{r cor, cache=TRUE}
+descrCor <- cor(raw.data[,-53])
+highCorr <- sum(abs(descrCor[upper.tri(descrCor)]) > 0.999)
+highCorr
+```
+Once again ther are no features to remove.
+
+At this point I am satisfied to split the data and start developing a model.
+```{r split, cache=TRUE}
+inTrain <- createDataPartition(y=raw.data$classe,p=0.6, list=FALSE)
+training <- raw.data[inTrain,]
+testing <- raw.data[-inTrain,]
+
+inTest <- createDataPartition(y=testing$classe,p=0.5, list=FALSE)
+cv.data <- testing[-inTest,]
+testing <- testing[inTest,]
+
+#rm(raw.data, inTrain, inTest)
+```
+The split is 60/20/20 into training/testing/cross-validation (cv.data)
+
+### Model fitting
+#### Random forests
+I will use the randomForest package in R because it is able to handle a large number of predictors in a classification model.
+```{r rflib, cache=TRUE}
+library(randomForest)
+```
+Tuning it first for the variable mtry can save time later since the optimal value can be specified in the model and therefore the model will not re-tune on every run.
+```{r tunerf, cache=TRUE, fig.width=5, fig.height=4}
+tuned <- tuneRF(training[,-53],training[,53])  
+```
+
+The result says that mtry = 4 is the optimal value, although they are all very close.  But should still speed the model up to specify this value
+
+Now the model will be built.  The other parameter of interest is ntree, the number of trees the model will build.  Different values were tried but I won't show them all here.  A first model of ntree=10 was tried just to gauge speed.  This model went very fast and the OOB estimate of the error was 5.25%.  It is correct to assume as ntree is increased the estimate will decrease, although not forever.  Beyond ntree=100, trials of 500, 1000 and 2000 showed little marginal return and obviously were slower.  Show below the model results, the plot shows how there is little return on more trees in this model.  So here is shown only the final model run.
+
+```{r rfmodel, cache=TRUE}
+rf.model <- randomForest(classe~., data=training, ntree= 500, mtry=4)
+print(rf.model)
+```
+
+The randomForest() model calculates an estimate for OOB error and for this model it predicts 0.72%.
+
+This plot shows the negligible return on increasing trees beyond 100.
+```{r tree, cache=TRUE}
+plot(rf.model, main='Estimated error vs. Number of Trees')
+```
+
+## Model Results
+All models were run against testing to verify performance but once again only the prdictions of the final model are shown.
+```{r rftest, cache=TRUE}
+pred.test <- predict(rf.model,testing)
+test.table <- table(pred.test,testing$classe)
+test.cm <- confusionMatrix(test.table)
+test.cm$table
+test.cm$overall[1]
+```
+
+The error on this iteration was 0.66%, extremely close to the model estimate.  Because the estimate and actual were so close, we should expect the model to do similarly well with the cross-validation set.
+
+## Cross Validation
+Since the model was fitted against training and repeatedly verified against testing it is wise to do one more validation of the model against data that has not been used.  That is the purpose of the cross-validation data set.
+
+```{r cv, cache=TRUE}
+cv.pred <- predict(rf.model,cv.data)
+cv.table <- table(cv.pred,cv.data$classe)
+cv.cm <- confusionMatrix(cv.table)
+cv.cm$table
+cv.cm$overall[1]
+```
+
+Once again the error was 0.66%, matching the error of the testing predictions.  This similarity of error proviedes confidence in the predictive ability of the model since the model has not receieved any feedback from the cross validation data during model building.
+
+## Conclusion
+The model built here was quite effective at predicting the activity with few tweaks to the data.  In the final assignment it correctly predicted 20/20 of observations.
+
+## References
+
+1. Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+## Appendix
+### data set feature names
+```{r data, cache=TRUE}
+summary(raw.data)
+```
